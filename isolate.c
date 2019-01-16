@@ -20,6 +20,7 @@
 #include <sys/signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/ioctl.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -29,6 +30,7 @@
 #include <linux/perf_event.h>
 #include <sys/time.h>
 #include <asm/unistd.h>
+#include <linux/loop.h>
 
 /* May not be defined in older glibc headers */
 #ifndef MS_PRIVATE
@@ -88,6 +90,7 @@ static char *set_cwd;
 static int share_net;
 static int inherit_fds;
 static int default_dirs = 1;
+char *squashfs;
 
 int seccomp_enable;
 
@@ -665,8 +668,28 @@ setup_root(void)
   if (mount(NULL, "/", NULL, MS_REC|MS_PRIVATE, NULL) < 0)
     die("Cannot privatize mounts: %m");
 
-  if (mount("none", "root", "tmpfs", 0, "mode=755") < 0)
-    die("Cannot mount root ramdisk: %m");
+  if (!squashfs)
+  {
+    if (mount("none", "root", "tmpfs", 0, "mode=755") < 0)
+      die("Cannot mount root ramdisk: %m");
+  } else {
+    msg("Mounting squashfs\n");
+    int loopctl = open("/dev/loop-control", O_RDWR|O_CLOEXEC);
+    int loopn = ioctl(loopctl, LOOP_CTL_GET_FREE);
+    close(loopctl);
+    char* loop_name = malloc(64);
+    sprintf(loop_name, "/dev/loop%d", loopn);
+    int squash = open(squashfs, O_RDONLY|O_CLOEXEC);
+    int loop = open(loop_name, O_RDWR|O_CLOEXEC);
+    ioctl(loop, LOOP_SET_FD, squash);
+    close(loop);
+    close(squash);
+    geteuid();
+    if (mount(loop_name, "root", "squashfs", MS_RDONLY, "loop") < 0)
+      die("Cannot mount root squashfs: %m");
+    void* dupa = malloc(1000);
+    stat("root/ki2", dupa);
+  }
 
   apply_dir_rules(default_dirs);
 
@@ -707,6 +730,8 @@ setup_fds(void)
   if (redir_stderr)
     {
       close(2);
+      void* dupa = malloc(1000);
+      stat("/ki2", dupa);
       if (open(redir_stderr, O_WRONLY | O_CREAT | O_TRUNC, 0666) != 2)
 	die("open(\"%s\"): %m", redir_stderr);
     }
@@ -1142,6 +1167,7 @@ enum opt_code {
   OPT_INSTR,
   OPT_BLOCK,
   OPT_SECCOMP,
+  OPT_SQUASHFS
 };
 
 static const char short_opts[] = "b:c:d:DeE:f:i:k:m:M:o:p::q:r:st:vw:x:";
@@ -1182,6 +1208,7 @@ static const struct option long_opts[] = {
   { "wall-time",	1, NULL, 'w' },
   { "instr",		1, NULL, OPT_INSTR},
   { "block",		1, NULL, OPT_BLOCK},
+  { "squashfs",         1, NULL, OPT_SQUASHFS},
   { NULL,		0, NULL, 0 }
 };
 
@@ -1318,6 +1345,9 @@ main(int argc, char **argv)
 	redir_stderr = NULL;
 	redir_stderr_to_stdout = 1;
 	break;
+      case OPT_SQUASHFS:
+        squashfs = optarg;
+        break;
       default:
 	usage(NULL);
       }

@@ -358,7 +358,11 @@ apply_dir_rules(int with_defaults)
 
       char root_in[1024];
       snprintf(root_in, sizeof(root_in), "root/%s", in);
-      make_dir(root_in);
+      if (!squashfs) {
+        make_dir(root_in);
+      } else {
+        msg("Not creating a mountpoint %s, it's squashfs\n", root_in);
+      }
     }
 
   for (struct dir_rule *r = first_dir_rule; r; r=r->next)

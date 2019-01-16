@@ -29,6 +29,7 @@ extern int inode_quota;
 extern int cg_enable;
 extern int cg_memory_limit;
 extern int cg_timing;
+extern char* squashfs;
 
 extern int box_id;
 extern int box_id_auto;
